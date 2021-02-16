@@ -6,7 +6,10 @@ Make sure you create a Mainnet "Developer" or "Staging" feed on Alchemy and put 
 Otherwise you will get mysterious error messages when running the hardhat fork.
 
 ```npm start``` will start your local fork.
+
 ```npm run-script init-fork``` will deploy the contract to your local fork.
+
+**It is important that you restart the fork any time you want to re-deploy the contract so that it gets created at the same address the UI is looking for it.
 
 In Metamask, select the "Localhost 8545" network
 
