@@ -16,6 +16,7 @@ contract BUYsTSLA
 	//consts for USDC to sUSD on curve.fi
 	IERC20 sUSD = IERC20(0x57Ab1ec28D129707052df4dF418D58a2D46d5f51);
 	IERC20 USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
+	IERC20 sTSLA = IERC20(0x918dA91Ccbc32B7a6A0cc4eCd5987bbab6E31e6D);
 
 	address constant CurveSUSDSwapAddress = 0xA5407eAE9Ba41422680e2e00537571bcC53efBfD;
 	ICurveSUSD crvSUSDSwap = ICurveSUSD(CurveSUSDSwapAddress);
@@ -104,8 +105,14 @@ contract BUYsTSLA
 			revert('sUSD transfer approval failed');
 		}
 
-		//exchange via synthetix, benefitting the caller
-		uint stsla_received = Synthetix.exchangeOnBehalf(msg.sender, sUSDKey, susd_received, sTSLAKey);
+		//exchange via synthetix bringing sTSLA to us
+		uint stsla_received = Synthetix.exchange(sUSDKey, susd_received, sTSLAKey);
+
+		//send sTSLA back to the caller
+		if (!sTSLA.transfer(msg.sender, stsla_received))
+		{
+			revert('sTSLA transfer failed');
+		}
 
 		return stsla_received;
 	}
