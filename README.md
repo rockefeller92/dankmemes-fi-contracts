@@ -1,7 +1,8 @@
 # dankmemes-fi-contracts
 
 **BEFORE YOU DO ANYTHING**
-Make sure you create a Mainnet feed on Alchemy and put the URL into alchemy.config.json !
+Make sure you create a Mainnet feed on Alchemy and put the URL into alchemy.config.json
+
 Otherwise you will get mysterious error messages when running the hardhat fork.
 
 ```npm start``` will start your local fork.
