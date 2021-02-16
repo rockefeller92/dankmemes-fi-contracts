@@ -3,7 +3,7 @@
 **BEFORE YOU DO ANYTHING**
 Make sure you create a Mainnet "Developer" or "Staging" feed on Alchemy and put the URL into alchemy.config.json
 
-Otherwise you will get mysterious error messages when running the hardhat fork.
+Otherwise you will get mysterious error messages when starting your local fork.
 
 ```npm start``` will start your local fork.
 
