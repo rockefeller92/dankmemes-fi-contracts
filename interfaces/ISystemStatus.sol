@@ -53,6 +53,7 @@ interface ISystemStatus {
 
     // Restricted functions
     function suspendSynth(bytes32 currencyKey, uint256 reason) external;
+    function resumeSynthExchange(bytes32 currencyKey) external;
 
     function updateAccessControl(
         bytes32 section,

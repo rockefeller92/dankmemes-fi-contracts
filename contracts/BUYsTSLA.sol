@@ -2,6 +2,7 @@
 pragma solidity ^0.7.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 
 import "../interfaces/ICurveSUSD.sol";
 import "../interfaces/ISynthetix.sol";
@@ -10,6 +11,8 @@ import "../interfaces/ISystemStatus.sol";
 
 contract BUYsTSLA
 {
+	using SafeMath for uint256;
+
 	//consts for USDC to sUSD on curve.fi
 	IERC20 sUSD = IERC20(0x57Ab1ec28D129707052df4dF418D58a2D46d5f51);
 	IERC20 USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -75,9 +78,9 @@ contract BUYsTSLA
 		uint256 susd_expected = est_swap_usdc_to_susd(usdc_amount);
 
 		//establish minimum expected at 1% less than expected amount
-		uint256 min_susd_expected = susd_expected - susd_expected/100;
+		uint256 min_susd_expected = susd_expected.sub(susd_expected.div(100));
 
-		//TODO: this expected amount should actually come from a value displayed to the user
+		//TODO: this above expected amount should actually come from a value displayed to the user
 		//prior to approving the transaction
 		//there can't be any "slippage" between the above estimate and the swap below
 		//since this is all in the same atomic transaction
@@ -91,7 +94,7 @@ contract BUYsTSLA
 
 		//determine how much we received in the swap
 		uint256 after_susd_balance = sUSD.balanceOf(address(this));
-		uint256 susd_received = after_susd_balance - before_susd_balance;
+		uint256 susd_received = after_susd_balance.sub(before_susd_balance);
 
 		//now turn sUSD it into sTSLA and send back to the caller
 
