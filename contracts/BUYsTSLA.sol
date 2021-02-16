@@ -8,6 +8,7 @@ import "../interfaces/ICurveSUSD.sol";
 import "../interfaces/ISynthetix.sol";
 import "../interfaces/IExchanger.sol";
 import "../interfaces/ISystemStatus.sol";
+import "../interfaces/IBalancerPool.sol";
 
 contract BUYsTSLA
 {
@@ -35,6 +36,10 @@ contract BUYsTSLA
 	bytes32 sUSDKey  = 0x7355534400000000000000000000000000000000000000000000000000000000;
 	bytes32 sTSLAKey = 0x7354534c41000000000000000000000000000000000000000000000000000000;
 
+	//for sUSD to sTSLA on Balancer
+	address constant BalancerAddress = 0x055dB9AFF4311788264798356bbF3a733AE181c6;
+	IBalancerPool  BalancerPool = IBalancerPool(BalancerAddress);
+
 	constructor() {}
 
 	//estimate how much sUSD you can get for USDC
@@ -52,13 +57,24 @@ contract BUYsTSLA
 	//estimate how much sTSLA you can get for USDC
 	function est_swap_usdc_to_stsla(uint256 usdc_amount) public view returns (uint256 )
 	{
-		uint256 susd_amount = est_swap_usdc_to_susd(usdc_amount);
+		uint256 expectedSUSD = est_swap_usdc_to_susd(usdc_amount);
 
-		(uint amountReceived,
-         /*uint fee*/,
-         /*uint exchangeFeeRate*/) = SynthetixExchanger.getAmountsForExchange(susd_amount, sUSDKey, sTSLAKey);
-		 
-		return amountReceived;
+		
+			//TODO
+			// Synthetix isn't working cause it requires a waiting period
+			// (uint amountReceived,
+			// /*uint fee*/,
+			// /*uint exchangeFeeRate*/) = SynthetixExchanger.getAmountsForExchange(susd_amount, sUSDKey, sTSLAKey);
+		
+		uint256 sUSDAmount = BalancerPool.getBalance(address(sUSD));
+		uint256 sTSLAAmount = BalancerPool.getBalance(address(sTSLA));
+		uint256 sUSDWeight = BalancerPool.getDenormalizedWeight(address(sUSD));
+		uint256 sTSLAWeight = BalancerPool.getDenormalizedWeight(address(sTSLA));
+		uint256 fee = BalancerPool.getSwapFee();
+
+	    uint256 amount_expected = BalancerPool.calcOutGivenIn(sUSDAmount, sUSDWeight, sTSLAAmount, sTSLAWeight, expectedSUSD, fee);
+
+		return amount_expected;
 	}
 
 	function swap_usdc_to_stsla(uint256 usdc_amount) payable external returns (uint256 )
@@ -99,14 +115,28 @@ contract BUYsTSLA
 
 		//now turn sUSD it into sTSLA and send back to the caller
 
-		//give Synthetix contract permission to take susd_received from us
-		if (!sUSD.approve(SynthetixAddress, susd_received))
+		/*
+			//TODO
+			//exchange via Synthetix isn't working because it requires a waiting period
+
+			//give Synthetix contract permission to take susd_received from us
+			if (!sUSD.approve(SynthetixAddress, susd_received))
+			{
+				revert('sUSD transfer approval failed');
+			}
+
+			//exchange via synthetix bringing sTSLA to us
+			uint stsla_received = Synthetix.exchange(sUSDKey, susd_received, sTSLAKey);
+		*/
+
+		//give Balancer contract permission to take susd_received from us
+		if (!sUSD.approve(BalancerAddress, susd_received))
 		{
 			revert('sUSD transfer approval failed');
 		}
 
-		//exchange via synthetix bringing sTSLA to us
-		uint stsla_received = Synthetix.exchange(sUSDKey, susd_received, sTSLAKey);
+		// Swap sUSD for sTSLA on Balancer
+		(uint stsla_received, ) = BalancerPool.swapExactAmountIn(address(sUSD), susd_received, address(sTSLA), 0, uint256(-1));
 
 		//send sTSLA back to the caller
 		if (!sTSLA.transfer(msg.sender, stsla_received))
