@@ -7,7 +7,7 @@ Otherwise you will get mysterious error messages when running the hardhat fork.
 
 ```npm start``` will start your local fork.
 
-In Metamask, connect your network to the "Localhost 8545"
+In Metamask, select the "Localhost 8545" network
 
 You will need some USDC in whatever account you want to test with.
 
