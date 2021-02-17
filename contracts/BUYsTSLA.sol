@@ -1,8 +1,9 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.7.0;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
 
 import "../interfaces/ICurveSUSD.sol";
 import "../interfaces/ISynthetix.sol";
@@ -12,6 +13,7 @@ import "../interfaces/IBalancerPool.sol";
 
 contract BUYsTSLA
 {
+	using SafeERC20 for IERC20;
 	using SafeMath for uint256;
 
 	//consts for USDC to sUSD on curve.fi
@@ -54,43 +56,45 @@ contract BUYsTSLA
 		return suspended;
 	}
 
-	//estimate how much sTSLA you can get for USDC
-	function est_swap_usdc_to_stsla(uint256 usdc_amount) public view returns (uint256 )
+	//estimate how much sTSLA you can get for USDC (will use Synthetix or Balancer depending on use_synthetix)
+	function est_swap_usdc_to_stsla(uint256 usdc_amount, bool use_synthetix) public view returns (uint256 )
 	{
 		uint256 expectedSUSD = est_swap_usdc_to_susd(usdc_amount);
 
+		if (use_synthetix)
+		{
+			(uint amount_expected,
+			/*uint fee*/,
+			/*uint exchangeFeeRate*/) = SynthetixExchanger.getAmountsForExchange(expectedSUSD, sUSDKey, sTSLAKey);
 		
-			//TODO
-			// Synthetix isn't working cause it requires a waiting period
-			// (uint amountReceived,
-			// /*uint fee*/,
-			// /*uint exchangeFeeRate*/) = SynthetixExchanger.getAmountsForExchange(susd_amount, sUSDKey, sTSLAKey);
-		
-		uint256 sUSDAmount = BalancerPool.getBalance(address(sUSD));
-		uint256 sTSLAAmount = BalancerPool.getBalance(address(sTSLA));
-		uint256 sUSDWeight = BalancerPool.getDenormalizedWeight(address(sUSD));
-		uint256 sTSLAWeight = BalancerPool.getDenormalizedWeight(address(sTSLA));
-		uint256 fee = BalancerPool.getSwapFee();
+			return amount_expected;
+		}
+		else
+		{
+			//if not synthetix, use balancer
+			uint256 sUSDAmount = BalancerPool.getBalance(address(sUSD));
+			uint256 sTSLAAmount = BalancerPool.getBalance(address(sTSLA));
+			uint256 sUSDWeight = BalancerPool.getDenormalizedWeight(address(sUSD));
+			uint256 sTSLAWeight = BalancerPool.getDenormalizedWeight(address(sTSLA));
+			uint256 fee = BalancerPool.getSwapFee();
 
-	    uint256 amount_expected = BalancerPool.calcOutGivenIn(sUSDAmount, sUSDWeight, sTSLAAmount, sTSLAWeight, expectedSUSD, fee);
+			uint256 amount_expected = BalancerPool.calcOutGivenIn(sUSDAmount, sUSDWeight, sTSLAAmount, sTSLAWeight, expectedSUSD, fee);
 
-		return amount_expected;
+			return amount_expected;
+		}
+
 	}
 
-	function swap_usdc_to_stsla(uint256 usdc_amount) payable external returns (uint256 )
+	//make the USDC -> sTSLA swap
+	//goes through curve and then through Synthetix or Balancer depending on use_synthetix
+	function swap_usdc_to_stsla(uint256 usdc_amount, bool use_synthetix) payable external returns (uint256 )
 	{
 		//transfer incoming USDC funds from caller to this contract
-		if (!USDC.transferFrom(msg.sender, address(this), usdc_amount))
-		{
-			revert('USDC transfer failed');
-		}
+		USDC.safeTransferFrom(msg.sender, address(this), usdc_amount);
 
 		//approve sending of USDC from this contract to Curve
-		if (!USDC.approve(CurveSUSDSwapAddress, usdc_amount))
-		{
-			revert('USDC transfer approval failed');
-		}
-
+		USDC.safeApprove(CurveSUSDSwapAddress, usdc_amount);
+		
 		//estimate how much susd we should expect back
 		uint256 susd_expected = est_swap_usdc_to_susd(usdc_amount);
 
@@ -106,44 +110,50 @@ contract BUYsTSLA
 		//is the only definitive way to know how much we received
 		uint256 before_susd_balance = sUSD.balanceOf(address(this));
 
-		//do the swap
+		//swap USDC for sUSD on curve
 		crvSUSDSwap.exchange(USDCIndex,sUSDIndex,usdc_amount,min_susd_expected);
 
-		//determine how much we received in the swap
+		//determine how much sUSD received in the swap
 		uint256 after_susd_balance = sUSD.balanceOf(address(this));
 		uint256 susd_received = after_susd_balance.sub(before_susd_balance);
 
-		//now turn sUSD it into sTSLA and send back to the caller
+		//now turn sUSD it into sTSLA 
 
-		/*
-			//TODO
-			//exchange via Synthetix isn't working because it requires a waiting period
-
-			//give Synthetix contract permission to take susd_received from us
-			if (!sUSD.approve(SynthetixAddress, susd_received))
-			{
-				revert('sUSD transfer approval failed');
-			}
-
-			//exchange via synthetix bringing sTSLA to us
-			uint stsla_received = Synthetix.exchange(sUSDKey, susd_received, sTSLAKey);
-		*/
-
-		//give Balancer contract permission to take susd_received from us
-		if (!sUSD.approve(BalancerAddress, susd_received))
+		if (use_synthetix)
 		{
-			revert('sUSD transfer approval failed');
+			//finish sUSD->sTSLA on Synthetix
+
+			//first we give the SUSD back to the caller
+			sUSD.safeTransfer(msg.sender, susd_received);
+
+			//then ask Synthetix to perform the exchange on behalf of the caller
+			//(the exchange will use the callers sUSD which we just returned to them,
+			//make the trade, and then deposit the sTSLA with the caller)
+			//
+			//NOTE this requires that the caller has already given permission (in a separate eth transaction)
+			//to our contract to trade on their behalf
+			//that is done via Synthetix IDelegateApprovals.approveExchangeOnBehalf
+
+			uint stsla_received = Synthetix.exchangeOnBehalf(msg.sender, sUSDKey, susd_received, sTSLAKey);
+
+			return stsla_received;
 		}
-
-		// Swap sUSD for sTSLA on Balancer
-		(uint stsla_received, ) = BalancerPool.swapExactAmountIn(address(sUSD), susd_received, address(sTSLA), 0, uint256(-1));
-
-		//send sTSLA back to the caller
-		if (!sTSLA.transfer(msg.sender, stsla_received))
+		else
 		{
-			revert('sTSLA transfer failed');
-		}
+			//finish sUSD->sTSLA on Balancer
 
-		return stsla_received;
+			//give Balancer contract permission to take susd_received from us
+			sUSD.safeApprove(BalancerAddress, susd_received);
+
+			// Swap sUSD for sTSLA on Balancer
+			// TODO we should specify the min amount of sTSLA received and max price in this call
+			(uint stsla_received, ) = BalancerPool.swapExactAmountIn(address(sUSD), susd_received, address(sTSLA), 0, uint256(-1));
+
+			//send sTSLA back to the caller
+			sTSLA.safeTransfer(msg.sender, stsla_received);
+
+			return stsla_received;
+		}
+		
 	}
 }
